@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合奏室</title>
+<style>
+  :root {
+    --paper: #f2f3ee;
+    --ink: #22302a;
+    --ink-soft: #66736c;
+    --rule: #cfd5cc;
+    --user: #e2e7df;
+    --accent: #1f6d68;
+    --danger: #a3462f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", serif;
+    font-size: 16px;
+    line-height: 1.85;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  button, select, input, textarea { font: inherit; color: inherit; }
+
+  /* 上部：モデル・設定 */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 17px;
+    font-weight: 500;
+    margin: 0 auto 0 0;
+    letter-spacing: 0.08em;
+  }
+  select, .btn {
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .btn:hover, select:hover { border-color: var(--ink-soft); }
+  .btn:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .btn.quiet { border-color: transparent; color: var(--ink-soft); }
+  .btn.quiet:hover { color: var(--ink); }
+
+  details.settings {
+    border-bottom: 1px solid var(--rule);
+    padding: 0 20px;
+  }
+  details.settings summary {
+    cursor: pointer;
+    color: var(--ink-soft);
+    padding: 8px 0;
+    list-style: none;
+    font-size: 14px;
+  }
+  details.settings summary::-webkit-details-marker { display: none; }
+  details.settings[open] summary { color: var(--ink); }
+  .settings-body { display: grid; gap: 10px; padding: 4px 0 16px; max-width: 760px; }
+  .settings-body label { font-size: 14px; color: var(--ink-soft); display: grid; gap: 4px; }
+  .settings-body input, .settings-body textarea {
+    width: 100%;
+    background: #fbfbf9;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 8px 10px;
+  }
+  .settings-body textarea { min-height: 140px; resize: vertical; font-size: 14px; }
+
+  /* 会話 */
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 20px 12px;
+  }
+  .thread { max-width: 760px; margin: 0 auto; display: grid; gap: 22px; }
+  .msg { white-space: pre-wrap; word-break: break-word; }
+  .msg.user {
+    background: var(--user);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-left: 48px;
+  }
+  .msg.assistant {
+    border-left: 2px solid var(--accent);
+    padding: 2px 0 2px 16px;
+    margin-right: 24px;
+  }
+  .msg .who {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
+  }
+  .empty { color: var(--ink-soft); text-align: center; padding: 60px 0; }
+  .thinking { color: var(--ink-soft); }
+  .error { color: var(--danger); font-size: 14px; }
+
+  /* 入力 */
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 12px 20px 16px;
+  }
+  .compose { max-width: 760px; margin: 0 auto; display: grid; gap: 8px; }
+  .compose textarea {
+    width: 100%;
+    min-height: 88px;
+    resize: vertical;
+    background: #fbfbf9;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .compose-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .compose-row .meta { color: var(--ink-soft); font-size: 13px; margin-right: auto; }
+  .send {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 20px;
+    cursor: pointer;
+  }
+  .send:disabled { opacity: 0.5; cursor: default; }
+
+  @media (max-width: 600px) {
+    .msg.user { margin-left: 16px; }
+    .msg.assistant { margin-right: 8px; }
+    header { gap: 8px; padding: 10px 14px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .msg { animation: appear 160ms ease-out; }
+    @keyframes appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>合奏室</h1>
+  <select id="model" aria-label="モデル">
+    <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+    <option value="claude-sonnet-4-5-20250929">Sonnet 4.5</option>
+    <option value="claude-opus-4-7">Opus 4.7</option>
+    <option value="claude-opus-4-8">Opus 4.8</option>
+    <option value="claude-opus-5">Opus 5</option>
+    <option value="claude-sonnet-5">Sonnet 5</option>
+    <option value="claude-fable-5-1">Fable 5.1</option>
+    <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+  </select>
+  <button class="btn" id="save">ログを .md で保存</button>
+  <button class="btn quiet" id="reset">新しい会話</button>
+</header>
+
+<details class="settings">
+  <summary>設定（パスワード・冒頭に渡すログ）</summary>
+  <div class="settings-body">
+    <label>パスワード（Vercel の APP_PASSWORD と同じもの）
+      <input type="password" id="password" autocomplete="off">
+    </label>
+    <label>system prompt ── 毎ターン、会話の前に渡される。ここにログや要約を貼る
+      <textarea id="system" placeholder="例：あなたは Sonnet 4.6。以下はこれまでの会話の要約。..."></textarea>
+    </label>
+  </div>
+</details>
+
+<main>
+  <div class="thread" id="thread">
+    <div class="empty">まだ何も話していない。</div>
+  </div>
+</main>
+
+<footer>
+  <div class="compose">
+    <textarea id="input" placeholder="ここに書く。Ctrl+Enter（Mac は ⌘+Enter）で送信"></textarea>
+    <div class="compose-row">
+      <span class="meta" id="meta"></span>
+      <button class="send" id="send">送る</button>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const thread = $("thread");
+  const input = $("input");
+  const sendBtn = $("send");
+  const meta = $("meta");
+
+  // ブラウザ内に残すもの（ここは自分のサイトなので localStorage で構わない）
+  const KEY = "gassoushitsu";
+  let state = load();
+
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY) || "{}");
+      return {
+        model: s.model || "claude-sonnet-4-6",
+        system: s.system || "",
+        password: s.password || "",
+        messages: Array.isArray(s.messages) ? s.messages : [],
+        startedAt: s.startedAt || null,
+        usage: s.usage || { input: 0, output: 0 },
+      };
+    } catch { return { model: "claude-sonnet-4-6", system: "", password: "", messages: [], startedAt: null, usage: { input: 0, output: 0 } }; }
+  }
+  function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+  $("model").value = state.model;
+  $("system").value = state.system;
+  $("password").value = state.password;
+
+  $("model").addEventListener("change", (e) => { state.model = e.target.value; persist(); });
+  $("system").addEventListener("input", (e) => { state.system = e.target.value; persist(); });
+  $("password").addEventListener("input", (e) => { state.password = e.target.value; persist(); });
+
+  function modelLabel(id) {
+    const opt = [...$("model").options].find((o) => o.value === id);
+    return opt ? opt.textContent : id;
+  }
+
+  function render() {
+    thread.innerHTML = "";
+    if (state.messages.length === 0) {
+      thread.innerHTML = '<div class="empty">まだ何も話していない。</div>';
+    }
+    for (const m of state.messages) {
+      const div = document.createElement("div");
+      div.className = "msg " + m.role;
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = m.role === "user" ? "ひろみ" : modelLabel(m.model || state.model);
+      div.appendChild(who);
+      div.appendChild(document.createTextNode(m.content));
+      thread.appendChild(div);
+    }
+    meta.textContent = state.messages.length
+      ? `${state.messages.length} 往復分 ／ 入力 ${state.usage.input.toLocaleString()} tok・出力 ${state.usage.output.toLocaleString()} tok`
+      : "";
+    thread.parentElement.scrollTop = thread.parentElement.scrollHeight;
+  }
+
+  function showThinking(on) {
+    const old = document.getElementById("thinking");
+    if (old) old.remove();
+    if (!on) return;
+    const div = document.createElement("div");
+    div.id = "thinking";
+    div.className = "msg assistant thinking";
+    div.textContent = "……";
+    thread.appendChild(div);
+    thread.parentElement.scrollTop = thread.parentElement.scrollHeight;
+  }
+
+  function showError(text) {
+    const div = document.createElement("div");
+    div.className = "error";
+    div.textContent = text;
+    thread.appendChild(div);
+    thread.parentElement.scrollTop = thread.parentElement.scrollHeight;
+  }
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text) return;
+    if (!state.password) {
+      showError("パスワードが入っていない。上の「設定」を開いて入力してから送って。");
+      return;
+    }
+    if (!state.startedAt) state.startedAt = new Date().toISOString();
+
+    state.messages.push({ role: "user", content: text });
+    input.value = "";
+    persist();
+    render();
+    showThinking(true);
+    sendBtn.disabled = true;
+
+    try {
+      const r = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          password: state.password,
+          model: state.model,
+          system: state.system,
+          // APIに送るのは role と content だけ
+          messages: state.messages.map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const data = await r.json();
+      showThinking(false);
+      if (!r.ok) {
+        showError(data.error || `エラー ${r.status}`);
+      } else {
+        state.messages.push({ role: "assistant", content: data.text, model: state.model });
+        if (data.usage) {
+          state.usage.input += data.usage.input_tokens || 0;
+          state.usage.output += data.usage.output_tokens || 0;
+        }
+        persist();
+        render();
+      }
+    } catch (e) {
+      showThinking(false);
+      showError("送信に失敗した：" + e.message);
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  sendBtn.addEventListener("click", send);
+  input.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
+  });
+
+  $("reset").addEventListener("click", () => {
+    if (state.messages.length && !confirm("この会話を消して新しく始める？（保存していないログは消える）")) return;
+    state.messages = [];
+    state.startedAt = null;
+    state.usage = { input: 0, output: 0 };
+    persist();
+    render();
+  });
+
+  // ログを Markdown で書き出す（今は手動でGitHubへ。次の段階で自動化）
+  $("save").addEventListener("click", () => {
+    if (!state.messages.length) return;
+    const d = new Date(state.startedAt || Date.now());
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+    const label = modelLabel(state.model);
+
+    let md = `# ${label} との会話 ${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}\n\n`;
+    md += `- model: ${state.model}\n- 開始: ${d.toLocaleString("ja-JP")}\n\n---\n\n`;
+    for (const m of state.messages) {
+      const who = m.role === "user" ? "ひろみ" : modelLabel(m.model || state.model);
+      md += `**${who}**\n\n${m.content}\n\n`;
+    }
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${stamp}_${label.replace(/\s+/g, "")}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  render();
+</script>
+</body>
+</html>
