@@ -19,9 +19,9 @@
   body {
     background: var(--paper);
     color: var(--ink);
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", serif;
+    font-family: "Meiryo UI", "Meiryo", "Yu Gothic UI", "Hiragino Sans", sans-serif;
     font-size: 16px;
-    line-height: 1.85;
+    line-height: 1.8;
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -251,7 +251,7 @@
       thread.appendChild(div);
     }
     meta.textContent = state.messages.length
-      ? `${state.messages.length} 往復分 ／ 入力 ${state.usage.input.toLocaleString()} tok・出力 ${state.usage.output.toLocaleString()} tok`
+      ? `${Math.ceil(state.messages.length / 2)} 往復 ／ 入力 ${state.usage.input.toLocaleString()} tok・出力 ${state.usage.output.toLocaleString()} tok`
       : "";
     thread.parentElement.scrollTop = thread.parentElement.scrollHeight;
   }
