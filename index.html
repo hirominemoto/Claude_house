@@ -219,44 +219,138 @@
   const sendBtn = $("send");
   const meta = $("meta");
 
-  // ブラウザ内に残すもの（ここは自分のサイトなので localStorage で構わない）
   const KEY = "gassoushitsu";
+  const MODELS = ["claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-4-8"];
+  const emptyByModel = (factory) => Object.fromEntries(MODELS.map((id) => [id, factory()]));
+
   let state = load();
 
   function load() {
     try {
       const s = JSON.parse(localStorage.getItem(KEY) || "{}");
+      const legacyModel = s.model || "claude-sonnet-4-6";
+
       return {
-        model: s.model || "claude-sonnet-4-6",
-        systems: s.systems || { "claude-sonnet-4-6": s.system || "", "claude-opus-4-7": "", "claude-opus-4-8": "" },
+        model: legacyModel,
+        systems: s.systems || {
+          "claude-sonnet-4-6": s.system || "",
+          "claude-opus-4-7": "",
+          "claude-opus-4-8": ""
+        },
         password: s.password || "",
-        messagesByModel: s.messagesByModel || { "claude-sonnet-4-6": Array.isArray(s.messages) ? s.messages : [], "claude-opus-4-7": [], "claude-opus-4-8": [] },
-        startedAt: s.startedAt || null,
-        usage: s.usage || { input: 0, output: 0 },
-        ghPathsByModel: s.ghPathsByModel || { "claude-sonnet-4-6": s.ghPaths || "", "claude-opus-4-7": "", "claude-opus-4-8": "" },
+
+        messagesByModel: s.messagesByModel || {
+          "claude-sonnet-4-6": Array.isArray(s.messages) ? s.messages : [],
+          "claude-opus-4-7": [],
+          "claude-opus-4-8": []
+        },
+        startedAtByModel: s.startedAtByModel || {
+          "claude-sonnet-4-6": s.startedAt || null,
+          "claude-opus-4-7": null,
+          "claude-opus-4-8": null
+        },
+        usageByModel: s.usageByModel || {
+          "claude-sonnet-4-6": s.usage || { input: 0, output: 0 },
+          "claude-opus-4-7": { input: 0, output: 0 },
+          "claude-opus-4-8": { input: 0, output: 0 }
+        },
+
+        ghPathsByModel: s.ghPathsByModel || {
+          "claude-sonnet-4-6": s.ghPaths || "",
+          "claude-opus-4-7": "",
+          "claude-opus-4-8": ""
+        },
         ghAuto: !!s.ghAuto,
         ghDir: s.ghDir ?? "ログ",
-        ghContentByModel: s.ghContentByModel || { "claude-sonnet-4-6": s.ghContent || "", "claude-opus-4-7": "", "claude-opus-4-8": "" },
-        ghFilesByModel: s.ghFilesByModel || { "claude-sonnet-4-6": Array.isArray(s.ghFiles) ? s.ghFiles : [], "claude-opus-4-7": [], "claude-opus-4-8": [] },
-        ghSavedPath: s.ghSavedPath || null, // この会話を GitHub に保存したパス（2回目以降は上書き）
+        ghContentByModel: s.ghContentByModel || {
+          "claude-sonnet-4-6": s.ghContent || "",
+          "claude-opus-4-7": "",
+          "claude-opus-4-8": ""
+        },
+        ghFilesByModel: s.ghFilesByModel || {
+          "claude-sonnet-4-6": Array.isArray(s.ghFiles) ? s.ghFiles : [],
+          "claude-opus-4-7": [],
+          "claude-opus-4-8": []
+        },
+        ghSavedPathByModel: s.ghSavedPathByModel || {
+          "claude-sonnet-4-6": s.ghSavedPath || null,
+          "claude-opus-4-7": null,
+          "claude-opus-4-8": null
+        }
       };
-  } catch { return { model: "claude-sonnet-4-6", systems: { "claude-sonnet-4-6": "", "claude-opus-4-7": "", "claude-opus-4-8": "" }, password: "", messages: [], startedAt: null, usage: { input: 0, output: 0 }, ghPathsByModel: { "claude-sonnet-4-6": "", "claude-opus-4-7": "", "claude-opus-4-8": "" }, ghAuto: false, ghDir: "ログ", ghContentByModel: { "claude-sonnet-4-6": "", "claude-opus-4-7": "", "claude-opus-4-8": "" }, ghFilesByModel: { "claude-sonnet-4-6": [], "claude-opus-4-7": [], "claude-opus-4-8": [] }, ghSavedPath: null }; }
+    } catch {
+      return {
+        model: "claude-sonnet-4-6",
+        systems: emptyByModel(() => ""),
+        password: "",
+        messagesByModel: emptyByModel(() => []),
+        startedAtByModel: emptyByModel(() => null),
+        usageByModel: emptyByModel(() => ({ input: 0, output: 0 })),
+        ghPathsByModel: emptyByModel(() => ""),
+        ghAuto: false,
+        ghDir: "ログ",
+        ghContentByModel: emptyByModel(() => ""),
+        ghFilesByModel: emptyByModel(() => []),
+        ghSavedPathByModel: emptyByModel(() => null)
+      };
+    }
   }
-  function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+  function persist() {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  }
+
+  function currentMessages() {
+    return state.messagesByModel[state.model] || (state.messagesByModel[state.model] = []);
+  }
+
+  function currentUsage() {
+    return state.usageByModel[state.model] || (state.usageByModel[state.model] = { input: 0, output: 0 });
+  }
+
+  function syncModelFields() {
+    $("system").value = state.systems[state.model] || "";
+    $("ghpaths").value = state.ghPathsByModel[state.model] || "";
+    render();
+    renderGhStatus();
+  }
 
   $("model").value = state.model;
-  $("system").value = state.systems[state.model] || "";
   $("password").value = state.password;
-  $("ghpaths").value = state.ghPathsByModel[state.model] || "";
   $("ghauto").checked = state.ghAuto;
   $("ghdir").value = state.ghDir;
+  syncModelFields();
 
-  $("model").addEventListener("change", (e) => { state.model = e.target.value; $("system").value = state.systems[state.model] || ""; $("ghpaths").value = state.ghPathsByModel[state.model] || ""; persist(); });
-  $("system").addEventListener("input", (e) => { state.systems[state.model] = e.target.value; persist(); });
-  $("password").addEventListener("input", (e) => { state.password = e.target.value; persist(); });
-  $("ghpaths").addEventListener("input", (e) => { state.ghPathsByModel[state.model] = e.target.value; persist(); });
-  $("ghauto").addEventListener("change", (e) => { state.ghAuto = e.target.checked; persist(); });
-  $("ghdir").addEventListener("input", (e) => { state.ghDir = e.target.value.trim(); persist(); });
+  $("model").addEventListener("change", (e) => {
+    state.model = e.target.value;
+    persist();
+    syncModelFields();
+  });
+
+  $("system").addEventListener("input", (e) => {
+    state.systems[state.model] = e.target.value;
+    persist();
+  });
+
+  $("password").addEventListener("input", (e) => {
+    state.password = e.target.value;
+    persist();
+  });
+
+  $("ghpaths").addEventListener("input", (e) => {
+    state.ghPathsByModel[state.model] = e.target.value;
+    persist();
+  });
+
+  $("ghauto").addEventListener("change", (e) => {
+    state.ghAuto = e.target.checked;
+    persist();
+  });
+
+  $("ghdir").addEventListener("input", (e) => {
+    state.ghDir = e.target.value.trim();
+    persist();
+  });
 
   // ---- GitHub ----
   async function ghCall(payload) {
@@ -270,31 +364,54 @@
     return data;
   }
 
-  // 返事が JSON じゃないとき（404 ページなど）でも、何が起きたかわかるようにする
   async function readJson(r) {
     const raw = await r.text();
     try { return JSON.parse(raw); }
-    catch { return { error: `${r.status} が返ってきた（JSON ではない）。/api/ の関数が届いていないか、途中で落ちている` }; }
+    catch {
+      return {
+        error: `${r.status} が返ってきた（JSON ではない）。/api/ の関数が届いていないか、途中で落ちている`
+      };
+    }
   }
 
-  function ghStatus(text) { $("ghstatus").textContent = text; }
+  function ghStatus(text) {
+    $("ghstatus").textContent = text;
+  }
 
   function renderGhStatus() {
-    if (!(state.ghFilesByModel[state.model] || []).length) { ghStatus("まだ何も読んでいない。"); return; }
+    const files = state.ghFilesByModel[state.model] || [];
+    if (!files.length) {
+      ghStatus("まだ何も読んでいない。");
+      return;
+    }
     const chars = (state.ghContentByModel[state.model] || "").length.toLocaleString();
-    ghStatus(`読み込み済み: ${(state.ghFilesByModel[state.model] || []).join("、")} (${chars} 文字)`);
+    ghStatus(`読み込み済み: ${files.join("、")} (${chars} 文字)`);
   }
 
   async function loadFromGithub() {
-    const paths = (state.ghPathsByModel[state.model] || "").split("\n").map((s) => s.trim()).filter(Boolean);
-    if (!paths.length) { ghStatus("読むファイルのパスが空。上の欄に書いてから。"); return; }
-    if (!state.password) { ghStatus("パスワードが入っていない。"); return; }
+    const paths = (state.ghPathsByModel[state.model] || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (!paths.length) {
+      ghStatus("読むファイルのパスが空。上の欄に書いてから。");
+      return;
+    }
+    if (!state.password) {
+      ghStatus("パスワードが入っていない。");
+      return;
+    }
+
     ghStatus("GitHub から読んでいる……");
     $("ghload").disabled = true;
+
     try {
       const { files } = await ghCall({ action: "read", paths });
       state.ghFilesByModel[state.model] = files.map((f) => f.path);
-      state.ghContentByModel[state.model] = files.map((f) => `\n\n===== ${f.path} =====\n\n${f.text}`).join("");
+      state.ghContentByModel[state.model] = files
+        .map((f) => `\n\n===== ${f.path} =====\n\n${f.text}`)
+        .join("");
       persist();
       renderGhStatus();
     } catch (e) {
@@ -305,6 +422,7 @@
   }
 
   $("ghload").addEventListener("click", loadFromGithub);
+
   $("ghclear").addEventListener("click", () => {
     state.ghFilesByModel[state.model] = [];
     state.ghContentByModel[state.model] = "";
@@ -312,9 +430,9 @@
     renderGhStatus();
   });
 
-  // 実際に API へ渡す system prompt ＝ 手書きの枠 ＋ GitHub から読んだ中身
   function fullSystem() {
-    return (state.systems[state.model] || "") + (state.ghContentByModel[state.model] || "");
+    return (state.systems[state.model] || "") +
+      (state.ghContentByModel[state.model] || "");
   }
 
   function modelLabel(id) {
@@ -323,23 +441,33 @@
   }
 
   function render() {
+    const messages = currentMessages();
+    const usage = currentUsage();
+
     thread.innerHTML = "";
-    if (state.messages.length === 0) {
+    if (messages.length === 0) {
       thread.innerHTML = '<div class="empty">まだ何も話していない。</div>';
     }
-    for (const m of state.messages) {
+
+    for (const m of messages) {
       const div = document.createElement("div");
       div.className = "msg " + m.role;
+
       const who = document.createElement("span");
       who.className = "who";
-      who.textContent = m.role === "user" ? "ひろみ" : modelLabel(m.model || state.model);
+      who.textContent = m.role === "user"
+        ? "ひろみ"
+        : modelLabel(m.model || state.model);
+
       div.appendChild(who);
       div.appendChild(document.createTextNode(m.content));
       thread.appendChild(div);
     }
-    meta.textContent = state.messages.length
-      ? `${Math.ceil(state.messages.length / 2)} 往復 ／ 入力 ${state.usage.input.toLocaleString()} tok・出力 ${state.usage.output.toLocaleString()} tok`
+
+    meta.textContent = messages.length
+      ? `${Math.ceil(messages.length / 2)} 往復 ／ 入力 ${usage.input.toLocaleString()} tok・出力 ${usage.output.toLocaleString()} tok`
       : "";
+
     thread.parentElement.scrollTop = thread.parentElement.scrollHeight;
   }
 
@@ -347,6 +475,7 @@
     const old = document.getElementById("thinking");
     if (old) old.remove();
     if (!on) return;
+
     const div = document.createElement("div");
     div.id = "thinking";
     div.className = "msg assistant thinking";
@@ -366,13 +495,20 @@
   async function send() {
     const text = input.value.trim();
     if (!text) return;
+
     if (!state.password) {
       showError("パスワードが入っていない。上の「設定」を開いて入力してから送って。");
       return;
     }
-    if (!state.startedAt) state.startedAt = new Date().toISOString();
 
-    state.messages.push({ role: "user", content: text });
+    const modelAtSend = state.model;
+    const messages = state.messagesByModel[modelAtSend] || (state.messagesByModel[modelAtSend] = []);
+
+    if (!state.startedAtByModel[modelAtSend]) {
+      state.startedAtByModel[modelAtSend] = new Date().toISOString();
+    }
+
+    messages.push({ role: "user", content: text });
     input.value = "";
     persist();
     render();
@@ -385,28 +521,41 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           password: state.password,
-          model: state.model,
-          system: fullSystem(),
-          // APIに送るのは role と content だけ
-          messages: state.messages.map((m) => ({ role: m.role, content: m.content })),
+          model: modelAtSend,
+          system: (state.systems[modelAtSend] || "") + (state.ghContentByModel[modelAtSend] || ""),
+          messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
+
       const data = await readJson(r);
-      showThinking(false);
+
       if (!r.ok) {
-        showError(data.error || `エラー ${r.status}`);
-      } else {
-        state.messages.push({ role: "assistant", content: data.text, model: state.model });
-        if (data.usage) {
-          state.usage.input += data.usage.input_tokens || 0;
-          state.usage.output += data.usage.output_tokens || 0;
+        if (state.model === modelAtSend) {
+          showThinking(false);
+          showError(data.error || `エラー ${r.status}`);
         }
+      } else {
+        messages.push({ role: "assistant", content: data.text, model: modelAtSend });
+
+        if (data.usage) {
+          const usage = state.usageByModel[modelAtSend] ||
+            (state.usageByModel[modelAtSend] = { input: 0, output: 0 });
+          usage.input += data.usage.input_tokens || 0;
+          usage.output += data.usage.output_tokens || 0;
+        }
+
         persist();
-        render();
+
+        if (state.model === modelAtSend) {
+          showThinking(false);
+          render();
+        }
       }
     } catch (e) {
-      showThinking(false);
-      showError("送信に失敗した：" + e.message);
+      if (state.model === modelAtSend) {
+        showThinking(false);
+        showError("送信に失敗した：" + e.message);
+      }
     } finally {
       sendBtn.disabled = false;
       input.focus();
@@ -414,39 +563,53 @@
   }
 
   sendBtn.addEventListener("click", send);
+
   input.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      send();
+    }
   });
 
   $("reset").addEventListener("click", () => {
-    if (state.messages.length && !confirm("この会話を消して新しく始める？（保存していないログは消える）")) return;
-    state.messages = [];
-    state.startedAt = null;
-    state.usage = { input: 0, output: 0 };
-    state.ghSavedPath = null;
+    const messages = currentMessages();
+
+    if (messages.length &&
+        !confirm("この会話を消して新しく始める？（保存していないログは消える）")) {
+      return;
+    }
+
+    state.messagesByModel[state.model] = [];
+    state.startedAtByModel[state.model] = null;
+    state.usageByModel[state.model] = { input: 0, output: 0 };
+    state.ghSavedPathByModel[state.model] = null;
+
     persist();
     render();
   });
 
-  // 会話を Markdown にする（ダウンロードと GitHub 保存で共用）
   function buildMarkdown() {
-    const d = new Date(state.startedAt || Date.now());
+    const messages = currentMessages();
+    const startedAt = state.startedAtByModel[state.model];
+    const d = new Date(startedAt || Date.now());
     const pad = (n) => String(n).padStart(2, "0");
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
     const label = modelLabel(state.model);
 
     let md = `# ${label} との会話 ${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}\n\n`;
     md += `- model: ${state.model}\n- 開始: ${d.toLocaleString("ja-JP")}\n\n---\n\n`;
-    for (const m of state.messages) {
+
+    for (const m of messages) {
       const who = m.role === "user" ? "ひろみ" : modelLabel(m.model || state.model);
       md += `**${who}**\n\n${m.content}\n\n`;
     }
+
     return { md, filename: `${stamp}_${label.replace(/\s+/g, "")}.md` };
   }
 
-  // .md をダウンロード
   $("save").addEventListener("click", () => {
-    if (!state.messages.length) return;
+    if (!currentMessages().length) return;
+
     const { md, filename } = buildMarkdown();
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const a = document.createElement("a");
@@ -456,19 +619,32 @@
     URL.revokeObjectURL(a.href);
   });
 
-  // GitHub に保存（同じ会話は同じファイルに上書き）
   $("ghsave").addEventListener("click", async () => {
-    if (!state.messages.length) return;
-    if (!state.password) { showError("パスワードが入っていない。上の「設定」を開いて入力してから。"); return; }
+    if (!currentMessages().length) return;
+
+    if (!state.password) {
+      showError("パスワードが入っていない。上の「設定」を開いて入力してから。");
+      return;
+    }
+
     const { md, filename } = buildMarkdown();
     const dir = (state.ghDir || "").replace(/^\/+|\/+$/g, "");
-    const path = state.ghSavedPath || (dir ? `${dir}/${filename}` : filename);
+    const savedPath = state.ghSavedPathByModel[state.model];
+    const path = savedPath || (dir ? `${dir}/${filename}` : filename);
     const btn = $("ghsave");
+
     btn.disabled = true;
     btn.textContent = "保存中……";
+
     try {
-      const { url } = await ghCall({ action: "write", path, content: md, message: `合奏室: ${filename}` });
-      state.ghSavedPath = path;
+      const { url } = await ghCall({
+        action: "write",
+        path,
+        content: md,
+        message: `合奏室: ${filename}`
+      });
+
+      state.ghSavedPathByModel[state.model] = path;
       persist();
       btn.textContent = "保存した";
       meta.textContent = `GitHub に保存：${path}`;
@@ -484,7 +660,12 @@
 
   render();
   renderGhStatus();
-  if (state.ghAuto && (state.ghPathsByModel[state.model] || "").trim() && state.password) loadFromGithub();
+
+  if (state.ghAuto &&
+      (state.ghPathsByModel[state.model] || "").trim() &&
+      state.password) {
+    loadFromGithub();
+  }
 </script>
 </body>
 </html>
