@@ -357,7 +357,7 @@
     const r = await fetch("/api/github", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password: state.password, ...payload }),
+      body: JSON.stringify({ password: state.password, model: state.model, ...payload }),
     });
     const data = await readJson(r);
     if (!r.ok) throw new Error(data.error || `エラー ${r.status}`);
