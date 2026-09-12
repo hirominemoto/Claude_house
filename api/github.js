@@ -1,134 +1,204 @@
-// api/github.js
-// ブラウザから { password, action, ... } を受け取り、GitHub のリポジトリを読み書きする。
-// GitHub のトークンはここ（サーバー側）だけが知っていて、ブラウザには出ない。
-//
-// Vercel の環境変数に必要なもの：
-//   GITHUB_TOKEN  … GitHub の Fine-grained personal access token（対象リポジトリの Contents: Read and write）
-//   GITHUB_OWNER  … GitHub のユーザー名
-//   GITHUB_REPO   … リポジトリ名（例：Claude-chat）
-//   GITHUB_BRANCH … 省略可。省略時は main
-//
-// action:
-//   "read"  { paths: ["★202609更新_直近のログ.md", "要約/"] }
-//           → ファイルならその1本、フォルダなら中の .md を全部読んで返す
-//   "write" { path: "ログ/20260912_1030_Sonnet4.6.md", content: "…", message: "…" }
-//           → そのパスに保存（既にあれば上書き）
-
 const GH = "https://api.github.com";
+
+const REPO_BY_MODEL = {
+  "claude-sonnet-4-6": "Claude-chat",
+  "claude-opus-4-7": "Opus4.7",
+  "claude-opus-4-8": "light_opus4.8",
+};
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "POST only" });
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { password, action } = req.body || {};
+  const { password, model, action } = req.body || {};
 
-  if (!process.env.APP_PASSWORD || password !== process.env.APP_PASSWORD) {
+  if (password !== process.env.APP_PASSWORD) {
     return res.status(401).json({ error: "パスワードが違います" });
   }
 
   const token = process.env.GITHUB_TOKEN;
   const owner = process.env.GITHUB_OWNER;
-  const repo = process.env.GITHUB_REPO;
   const branch = process.env.GITHUB_BRANCH || "main";
-  if (!token || !owner || !repo) {
-    return res.status(500).json({ error: "GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO が設定されていません" });
+  const repo = REPO_BY_MODEL[model];
+
+  if (!token || !owner) {
+    return res.status(500).json({
+      error: "GitHub の環境変数が設定されていません",
+    });
+  }
+
+  if (!repo) {
+    return res.status(400).json({
+      error: `未対応のモデルです: ${model || "(未指定)"}`,
+    });
   }
 
   const headers = {
-    authorization: `Bearer ${token}`,
-    accept: "application/vnd.github+json",
-    "user-agent": "gassoushitsu",
-    "content-type": "application/json",
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "Content-Type": "application/json",
   };
-  const encPath = (p) => p.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-  const contentsUrl = (p) => `${GH}/repos/${owner}/${repo}/contents/${encPath(p)}?ref=${encodeURIComponent(branch)}`;
 
-  // 1本のファイルの中身を取る。1MB を超えるものは blob 経由で取る
-  async function readFile(p) {
-    const r = await fetch(contentsUrl(p), { headers });
-    if (!r.ok) throw new Error(`${p} を読めませんでした（${r.status}）`);
-    const data = await r.json();
-    if (Array.isArray(data)) throw new Error(`${p} はフォルダです`);
-    if (data.content) {
-      return Buffer.from(data.content, "base64").toString("utf8");
-    }
-    if (data.git_url) {
-      const b = await fetch(data.git_url, { headers });
-      if (!b.ok) throw new Error(`${p} の blob を読めませんでした（${b.status}）`);
-      const blob = await b.json();
-      return Buffer.from(blob.content, "base64").toString("utf8");
-    }
-    return "";
-  }
+  const contentsUrl = (path = "") => {
+    const encodedPath = String(path)
+      .split("/")
+      .filter(Boolean)
+      .map(encodeURIComponent)
+      .join("/");
 
-  // パスがフォルダなら中の .md を列挙、ファイルならそれ1本
-  async function expand(p) {
-    const clean = p.trim().replace(/^\/+/, "");
-    if (!clean) return [];
-    const r = await fetch(contentsUrl(clean), { headers });
-    if (r.status === 404) throw new Error(`${clean} が見つかりません（パスの綴りを確認して）`);
-    if (!r.ok) throw new Error(`${clean} にアクセスできません（${r.status}）`);
-    const data = await r.json();
-    if (Array.isArray(data)) {
-      return data
-        .filter((it) => it.type === "file" && /\.(md|txt)$/i.test(it.name))
-        .map((it) => it.path)
-        .sort();
-    }
-    return [data.path];
-  }
+    const base = `${GH}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`;
+    return encodedPath
+      ? `${base}/${encodedPath}?ref=${encodeURIComponent(branch)}`
+      : `${base}?ref=${encodeURIComponent(branch)}`;
+  };
 
   try {
     if (action === "read") {
-      const paths = Array.isArray(req.body.paths) ? req.body.paths : [];
-      if (!paths.length) return res.status(400).json({ error: "paths が空です" });
+      const paths = Array.isArray(req.body.paths)
+        ? req.body.paths.map((p) => String(p).trim()).filter(Boolean)
+        : [];
+
+      if (!paths.length) {
+        return res.status(400).json({
+          error: "読み込むGitHubパスがありません",
+        });
+      }
 
       const files = [];
-      for (const p of paths) {
-        for (const fp of await expand(p)) {
-          files.push({ path: fp, text: await readFile(fp) });
+
+      const readPath = async (path) => {
+        const response = await fetch(contentsUrl(path), { headers });
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error(`[${repo}] ファイルまたはフォルダが見つかりません: ${path}`);
+          }
+
+          const text = await response.text();
+          throw new Error(
+            `[${repo}] GitHub読込エラー (${response.status}): ${text}`
+          );
         }
+
+        const data = await response.json();
+
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (item.type === "dir") {
+              await readPath(item.path);
+            } else if (
+              item.type === "file" &&
+              /\.(md|txt)$/i.test(item.name || "")
+            ) {
+              await readPath(item.path);
+            }
+          }
+          return;
+        }
+
+        if (data.type !== "file") return;
+        if (!/\.(md|txt)$/i.test(data.name || "")) return;
+
+        let content = "";
+
+        if (data.content) {
+          content = Buffer.from(
+            String(data.content).replace(/\n/g, ""),
+            "base64"
+          ).toString("utf8");
+        } else if (data.download_url) {
+          const fileResponse = await fetch(data.download_url);
+          if (!fileResponse.ok) {
+            throw new Error(
+              `[${repo}] ファイル本文を取得できません: ${data.path}`
+            );
+          }
+          content = await fileResponse.text();
+        }
+
+        files.push({
+          path: data.path,
+          content,
+        });
+      };
+
+      for (const path of paths) {
+        await readPath(path);
       }
-      return res.status(200).json({ files });
+
+      return res.status(200).json({
+        ok: true,
+        repo,
+        files,
+      });
     }
 
     if (action === "write") {
-      const { path, content, message } = req.body;
-      if (!path || typeof content !== "string") {
-        return res.status(400).json({ error: "path と content が必要です" });
-      }
-      const clean = path.replace(/^\/+/, "");
+      const path = String(req.body.path || "").trim();
+      const content = String(req.body.content ?? "");
 
-      // 既にあるなら sha が要る（上書きのため）
+      if (!path) {
+        return res.status(400).json({
+          error: "保存先パスがありません",
+        });
+      }
+
+      const url = contentsUrl(path);
+
       let sha;
-      const g = await fetch(contentsUrl(clean), { headers });
-      if (g.ok) {
-        const cur = await g.json();
-        if (!Array.isArray(cur)) sha = cur.sha;
+      const existing = await fetch(url, { headers });
+
+      if (existing.ok) {
+        const data = await existing.json();
+        if (!Array.isArray(data) && data.sha) {
+          sha = data.sha;
+        }
+      } else if (existing.status !== 404) {
+        const text = await existing.text();
+        throw new Error(
+          `[${repo}] 既存ファイル確認エラー (${existing.status}): ${text}`
+        );
       }
 
       const body = {
-        message: message || `合奏室: ${clean}`,
+        message: `Save conversation: ${path}`,
         content: Buffer.from(content, "utf8").toString("base64"),
         branch,
       };
+
       if (sha) body.sha = sha;
 
-      const u = await fetch(`${GH}/repos/${owner}/${repo}/contents/${encPath(clean)}`, {
+      const response = await fetch(url, {
         method: "PUT",
         headers,
         body: JSON.stringify(body),
       });
-      const data = await u.json();
-      if (!u.ok) {
-        return res.status(u.status).json({ error: data?.message || `GitHub error ${u.status}` });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(
+          `[${repo}] GitHub保存エラー (${response.status}): ${text}`
+        );
       }
-      return res.status(200).json({ path: clean, url: data?.content?.html_url || null });
+
+      return res.status(200).json({
+        ok: true,
+        repo,
+        path,
+      });
     }
 
-    return res.status(400).json({ error: "action は read か write" });
-  } catch (e) {
-    return res.status(500).json({ error: e.message || "unknown error" });
+    return res.status(400).json({
+      error: `不明なactionです: ${action || "(未指定)"}`,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: error?.message || "GitHub APIでエラーが発生しました",
+      repo,
+    });
   }
 }
