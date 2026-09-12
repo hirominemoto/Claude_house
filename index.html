@@ -81,6 +81,11 @@
     padding: 8px 10px;
   }
   .settings-body textarea { min-height: 140px; resize: vertical; font-size: 14px; }
+  .settings-body textarea.short { min-height: 64px; }
+  .settings-body .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .settings-body .inline { display: flex; align-items: center; gap: 6px; }
+  .settings-body .status { font-size: 13px; color: var(--ink-soft); }
+  .settings-body hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
 
   /* 会話 */
   main {
@@ -164,7 +169,8 @@
     <option value="claude-fable-5-1">Fable 5.1</option>
     <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
   </select>
-  <button class="btn" id="save">ログを .md で保存</button>
+  <button class="btn" id="ghsave">GitHub に保存</button>
+  <button class="btn quiet" id="save">.md でダウンロード</button>
   <button class="btn quiet" id="reset">新しい会話</button>
 </header>
 
@@ -174,8 +180,22 @@
     <label>パスワード（Vercel の APP_PASSWORD と同じもの）
       <input type="password" id="password" autocomplete="off">
     </label>
-    <label>system prompt ── 毎ターン、会話の前に渡される。ここにログや要約を貼る
-      <textarea id="system" placeholder="例：あなたは Sonnet 4.6。以下はこれまでの会話の要約。..."></textarea>
+    <label>system prompt ── 毎ターン、会話の前に渡される。冒頭の枠（「分析じゃなく続きを話すために渡す」など）はここに書く
+      <textarea id="system" placeholder="例：あなたは Sonnet 4.6。以下はこれまでの会話のログ。分析するためではなく、続きを話すために渡す。"></textarea>
+    </label>
+    <hr>
+    <label>GitHub から読むファイル ── 1行に1つ。フォルダを書くと中の .md を全部読む。読んだ中身は system prompt の後ろに続けて渡される
+      <textarea id="ghpaths" class="short" placeholder="★202609更新_直近のログ.md&#10;過去ログまとめ/"></textarea>
+    </label>
+    <div class="row">
+      <button class="btn" id="ghload">GitHub から読み込む</button>
+      <label class="inline"><input type="checkbox" id="ghauto"> 開いたとき自動で読む</label>
+      <button class="btn quiet" id="ghclear">読んだ中身を外す</button>
+    </div>
+    <div class="status" id="ghstatus">まだ何も読んでいない。</div>
+    <hr>
+    <label>GitHub に保存するフォルダ（リポジトリ内のパス。空ならルート）
+      <input id="ghdir" placeholder="ログ">
     </label>
   </div>
 </details>
@@ -217,18 +237,82 @@
         messages: Array.isArray(s.messages) ? s.messages : [],
         startedAt: s.startedAt || null,
         usage: s.usage || { input: 0, output: 0 },
+        ghPaths: s.ghPaths || "",
+        ghAuto: !!s.ghAuto,
+        ghDir: s.ghDir ?? "ログ",
+        ghContent: s.ghContent || "",   // GitHub から読んだ中身（system prompt の後ろに付く）
+        ghFiles: Array.isArray(s.ghFiles) ? s.ghFiles : [],
+        ghSavedPath: s.ghSavedPath || null, // この会話を GitHub に保存したパス（2回目以降は上書き）
       };
-    } catch { return { model: "claude-sonnet-4-6", system: "", password: "", messages: [], startedAt: null, usage: { input: 0, output: 0 } }; }
+    } catch { return { model: "claude-sonnet-4-6", system: "", password: "", messages: [], startedAt: null, usage: { input: 0, output: 0 }, ghPaths: "", ghAuto: false, ghDir: "ログ", ghContent: "", ghFiles: [], ghSavedPath: null }; }
   }
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
 
   $("model").value = state.model;
   $("system").value = state.system;
   $("password").value = state.password;
+  $("ghpaths").value = state.ghPaths;
+  $("ghauto").checked = state.ghAuto;
+  $("ghdir").value = state.ghDir;
 
   $("model").addEventListener("change", (e) => { state.model = e.target.value; persist(); });
   $("system").addEventListener("input", (e) => { state.system = e.target.value; persist(); });
   $("password").addEventListener("input", (e) => { state.password = e.target.value; persist(); });
+  $("ghpaths").addEventListener("input", (e) => { state.ghPaths = e.target.value; persist(); });
+  $("ghauto").addEventListener("change", (e) => { state.ghAuto = e.target.checked; persist(); });
+  $("ghdir").addEventListener("input", (e) => { state.ghDir = e.target.value.trim(); persist(); });
+
+  // ---- GitHub ----
+  async function ghCall(payload) {
+    const r = await fetch("/api/github", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: state.password, ...payload }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `エラー ${r.status}`);
+    return data;
+  }
+
+  function ghStatus(text) { $("ghstatus").textContent = text; }
+
+  function renderGhStatus() {
+    if (!state.ghFiles.length) { ghStatus("まだ何も読んでいない。"); return; }
+    const chars = state.ghContent.length.toLocaleString();
+    ghStatus(`読み込み済み：${state.ghFiles.join("、")}（${chars} 文字）`);
+  }
+
+  async function loadFromGithub() {
+    const paths = state.ghPaths.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (!paths.length) { ghStatus("読むファイルのパスが空。上の欄に書いてから。"); return; }
+    if (!state.password) { ghStatus("パスワードが入っていない。"); return; }
+    ghStatus("GitHub から読んでいる……");
+    $("ghload").disabled = true;
+    try {
+      const { files } = await ghCall({ action: "read", paths });
+      state.ghFiles = files.map((f) => f.path);
+      state.ghContent = files.map((f) => `\n\n===== ${f.path} =====\n\n${f.text}`).join("");
+      persist();
+      renderGhStatus();
+    } catch (e) {
+      ghStatus("読めなかった：" + e.message);
+    } finally {
+      $("ghload").disabled = false;
+    }
+  }
+
+  $("ghload").addEventListener("click", loadFromGithub);
+  $("ghclear").addEventListener("click", () => {
+    state.ghFiles = [];
+    state.ghContent = "";
+    persist();
+    renderGhStatus();
+  });
+
+  // 実際に API へ渡す system prompt ＝ 手書きの枠 ＋ GitHub から読んだ中身
+  function fullSystem() {
+    return (state.system || "") + (state.ghContent || "");
+  }
 
   function modelLabel(id) {
     const opt = [...$("model").options].find((o) => o.value === id);
@@ -299,7 +383,7 @@
         body: JSON.stringify({
           password: state.password,
           model: state.model,
-          system: state.system,
+          system: fullSystem(),
           // APIに送るのは role と content だけ
           messages: state.messages.map((m) => ({ role: m.role, content: m.content })),
         }),
@@ -336,13 +420,13 @@
     state.messages = [];
     state.startedAt = null;
     state.usage = { input: 0, output: 0 };
+    state.ghSavedPath = null;
     persist();
     render();
   });
 
-  // ログを Markdown で書き出す（今は手動でGitHubへ。次の段階で自動化）
-  $("save").addEventListener("click", () => {
-    if (!state.messages.length) return;
+  // 会話を Markdown にする（ダウンロードと GitHub 保存で共用）
+  function buildMarkdown() {
     const d = new Date(state.startedAt || Date.now());
     const pad = (n) => String(n).padStart(2, "0");
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
@@ -354,15 +438,50 @@
       const who = m.role === "user" ? "ひろみ" : modelLabel(m.model || state.model);
       md += `**${who}**\n\n${m.content}\n\n`;
     }
+    return { md, filename: `${stamp}_${label.replace(/\s+/g, "")}.md` };
+  }
+
+  // .md をダウンロード
+  $("save").addEventListener("click", () => {
+    if (!state.messages.length) return;
+    const { md, filename } = buildMarkdown();
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${stamp}_${label.replace(/\s+/g, "")}.md`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(a.href);
   });
 
+  // GitHub に保存（同じ会話は同じファイルに上書き）
+  $("ghsave").addEventListener("click", async () => {
+    if (!state.messages.length) return;
+    if (!state.password) { showError("パスワードが入っていない。上の「設定」を開いて入力してから。"); return; }
+    const { md, filename } = buildMarkdown();
+    const dir = (state.ghDir || "").replace(/^\/+|\/+$/g, "");
+    const path = state.ghSavedPath || (dir ? `${dir}/${filename}` : filename);
+    const btn = $("ghsave");
+    btn.disabled = true;
+    btn.textContent = "保存中……";
+    try {
+      const { url } = await ghCall({ action: "write", path, content: md, message: `合奏室: ${filename}` });
+      state.ghSavedPath = path;
+      persist();
+      btn.textContent = "保存した";
+      meta.textContent = `GitHub に保存：${path}`;
+      if (url) console.log(url);
+    } catch (e) {
+      showError("GitHub に保存できなかった：" + e.message);
+      btn.textContent = "GitHub に保存";
+    } finally {
+      btn.disabled = false;
+      setTimeout(() => { btn.textContent = "GitHub に保存"; }, 2000);
+    }
+  });
+
   render();
+  renderGhStatus();
+  if (state.ghAuto && state.ghPaths.trim() && state.password) loadFromGithub();
 </script>
 </body>
 </html>
