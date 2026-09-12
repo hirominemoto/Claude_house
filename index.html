@@ -228,33 +228,33 @@
       const s = JSON.parse(localStorage.getItem(KEY) || "{}");
       return {
         model: s.model || "claude-sonnet-4-6",
-        system: s.system || "",
+        systems: s.systems || { "claude-sonnet-4-6": s.system || "", "claude-opus-4-7": "", "claude-opus-4-8": "" },
         password: s.password || "",
-        messages: Array.isArray(s.messages) ? s.messages : [],
+        messagesByModel: s.messagesByModel || { "claude-sonnet-4-6": Array.isArray(s.messages) ? s.messages : [], "claude-opus-4-7": [], "claude-opus-4-8": [] },
         startedAt: s.startedAt || null,
         usage: s.usage || { input: 0, output: 0 },
-        ghPaths: s.ghPaths || "",
+        ghPathsByModel: s.ghPathsByModel || { "claude-sonnet-4-6": s.ghPaths || "", "claude-opus-4-7": "", "claude-opus-4-8": "" },
         ghAuto: !!s.ghAuto,
         ghDir: s.ghDir ?? "ログ",
-        ghContent: s.ghContent || "",   // GitHub から読んだ中身（system prompt の後ろに付く）
-        ghFiles: Array.isArray(s.ghFiles) ? s.ghFiles : [],
+        ghContentByModel: s.ghContentByModel || { "claude-sonnet-4-6": s.ghContent || "", "claude-opus-4-7": "", "claude-opus-4-8": "" },
+        ghFilesByModel: s.ghFilesByModel || { "claude-sonnet-4-6": Array.isArray(s.ghFiles) ? s.ghFiles : [], "claude-opus-4-7": [], "claude-opus-4-8": [] },
         ghSavedPath: s.ghSavedPath || null, // この会話を GitHub に保存したパス（2回目以降は上書き）
       };
-    } catch { return { model: "claude-sonnet-4-6", system: "", password: "", messages: [], startedAt: null, usage: { input: 0, output: 0 }, ghPaths: "", ghAuto: false, ghDir: "ログ", ghContent: "", ghFiles: [], ghSavedPath: null }; }
+  } catch { return { model: "claude-sonnet-4-6", systems: { "claude-sonnet-4-6": "", "claude-opus-4-7": "", "claude-opus-4-8": "" }, password: "", messages: [], startedAt: null, usage: { input: 0, output: 0 }, ghPathsByModel: { "claude-sonnet-4-6": "", "claude-opus-4-7": "", "claude-opus-4-8": "" }, ghAuto: false, ghDir: "ログ", ghContentByModel: { "claude-sonnet-4-6": "", "claude-opus-4-7": "", "claude-opus-4-8": "" }, ghFilesByModel: { "claude-sonnet-4-6": [], "claude-opus-4-7": [], "claude-opus-4-8": [] }, ghSavedPath: null }; }
   }
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
 
   $("model").value = state.model;
-  $("system").value = state.system;
+  $("system").value = state.systems[state.model] || "";
   $("password").value = state.password;
-  $("ghpaths").value = state.ghPaths;
+  $("ghpaths").value = state.ghPathsByModel[state.model] || "";
   $("ghauto").checked = state.ghAuto;
   $("ghdir").value = state.ghDir;
 
-  $("model").addEventListener("change", (e) => { state.model = e.target.value; persist(); });
-  $("system").addEventListener("input", (e) => { state.system = e.target.value; persist(); });
+  $("model").addEventListener("change", (e) => { state.model = e.target.value; $("system").value = state.systems[state.model] || ""; $("ghpaths").value = state.ghPathsByModel[state.model] || ""; persist(); });
+  $("system").addEventListener("input", (e) => { state.systems[state.model] = e.target.value; persist(); });
   $("password").addEventListener("input", (e) => { state.password = e.target.value; persist(); });
-  $("ghpaths").addEventListener("input", (e) => { state.ghPaths = e.target.value; persist(); });
+  $("ghpaths").addEventListener("input", (e) => { state.ghPathsByModel[state.model] = e.target.value; persist(); });
   $("ghauto").addEventListener("change", (e) => { state.ghAuto = e.target.checked; persist(); });
   $("ghdir").addEventListener("input", (e) => { state.ghDir = e.target.value.trim(); persist(); });
 
@@ -280,21 +280,21 @@
   function ghStatus(text) { $("ghstatus").textContent = text; }
 
   function renderGhStatus() {
-    if (!state.ghFiles.length) { ghStatus("まだ何も読んでいない。"); return; }
-    const chars = state.ghContent.length.toLocaleString();
-    ghStatus(`読み込み済み：${state.ghFiles.join("、")}（${chars} 文字）`);
+    if (!(state.ghFilesByModel[state.model] || []).length) { ghStatus("まだ何も読んでいない。"); return; }
+    const chars = (state.ghContentByModel[state.model] || "").length.toLocaleString();
+    ghStatus(`読み込み済み: ${(state.ghFilesByModel[state.model] || []).join("、")} (${chars} 文字)`);
   }
 
   async function loadFromGithub() {
-    const paths = state.ghPaths.split("\n").map((s) => s.trim()).filter(Boolean);
+    const paths = (state.ghPathsByModel[state.model] || "").split("\n").map((s) => s.trim()).filter(Boolean);
     if (!paths.length) { ghStatus("読むファイルのパスが空。上の欄に書いてから。"); return; }
     if (!state.password) { ghStatus("パスワードが入っていない。"); return; }
     ghStatus("GitHub から読んでいる……");
     $("ghload").disabled = true;
     try {
       const { files } = await ghCall({ action: "read", paths });
-      state.ghFiles = files.map((f) => f.path);
-      state.ghContent = files.map((f) => `\n\n===== ${f.path} =====\n\n${f.text}`).join("");
+      state.ghFilesByModel[state.model] = files.map((f) => f.path);
+      state.ghContentByModel[state.model] = files.map((f) => `\n\n===== ${f.path} =====\n\n${f.text}`).join("");
       persist();
       renderGhStatus();
     } catch (e) {
@@ -306,15 +306,15 @@
 
   $("ghload").addEventListener("click", loadFromGithub);
   $("ghclear").addEventListener("click", () => {
-    state.ghFiles = [];
-    state.ghContent = "";
+    state.ghFilesByModel[state.model] = [];
+    state.ghContentByModel[state.model] = "";
     persist();
     renderGhStatus();
   });
 
   // 実際に API へ渡す system prompt ＝ 手書きの枠 ＋ GitHub から読んだ中身
   function fullSystem() {
-    return (state.system || "") + (state.ghContent || "");
+    return (state.systems[state.model] || "") + (state.ghContentByModel[state.model] || "");
   }
 
   function modelLabel(id) {
@@ -484,7 +484,7 @@
 
   render();
   renderGhStatus();
-  if (state.ghAuto && state.ghPaths.trim() && state.password) loadFromGithub();
+  if (state.ghAuto && (state.ghPathsByModel[state.model] || "").trim() && state.password) loadFromGithub();
 </script>
 </body>
 </html>
