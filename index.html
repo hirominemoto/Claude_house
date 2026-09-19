@@ -368,14 +368,14 @@
       const startedAt = state.startedAtByModel?.[model];
       if (!startedAt || monthKey(new Date(startedAt)) !== k) continue;
 
-      for (const message of state.messagesByModel?.[model] || []) {
-        if (message.role !== "assistant" || !message.usage) continue;
-        const inputTokens = Number(message.usage.input) || 0;
-        const outputTokens = Number(message.usage.output) || 0;
-        reconstructed.input += inputTokens;
-        reconstructed.output += outputTokens;
-        reconstructed.usd += costUSD(message.model || model, inputTokens, outputTokens) || 0;
-      }
+      // 会話全体の累計には、料金表示を追加する前の返信分も残っている。
+      // 各メッセージの usage ではなく、この累計を復元元にする。
+      const usage = state.usageByModel?.[model] || { input: 0, output: 0 };
+      const inputTokens = Number(usage.input) || 0;
+      const outputTokens = Number(usage.output) || 0;
+      reconstructed.input += inputTokens;
+      reconstructed.output += outputTokens;
+      reconstructed.usd += costUSD(model, inputTokens, outputTokens) || 0;
     }
 
     const saved = state.monthly[k] || { usd: 0, input: 0, output: 0 };
