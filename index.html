@@ -252,9 +252,10 @@
     </div>
     <div class="status" id="ghstatus">まだ何も読んでいない。</div>
     <hr>
-    <label>GitHub に保存するフォルダ（リポジトリ内のパス。空ならルート）
-      <input id="ghdir" placeholder="ログ">
+    <label>GitHub に保存するフォルダ ── 相手ごとに別。リポジトリの中のフォルダ名だけ書く（リポジトリ名やユーザー名は不要）。空ならルート
+      <input id="ghdir" placeholder="ログ/202609">
     </label>
+    <div class="status" id="ghsavestatus"></div>
   </div>
 </details>
 
@@ -290,6 +291,12 @@
     "claude-sonnet-4-6": { input: 3,  output: 15 },
     "claude-opus-4-7":   { input: 5,  output: 25 },
     "claude-opus-4-8":   { input: 5,  output: 25 }
+  };
+  // 表示用。実際の振り分けは api/github.js の REPO_BY_MODEL
+  const REPO_LABEL = {
+    "claude-sonnet-4-6": "Claude-chat",
+    "claude-opus-4-7":   "Opus4.7",
+    "claude-opus-4-8":   "light_opus4.8"
   };
   const JPY_RATE = 150; // 円換算の目安レート。ざっくりでいいので固定値
   const monthKey = (d = new Date()) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -349,7 +356,7 @@
           "claude-opus-4-8": ""
         },
         ghAuto: !!s.ghAuto,
-        ghDir: s.ghDir ?? "ログ",
+        ghDirByModel: s.ghDirByModel || emptyByModel(() => s.ghDir ?? "ログ"),
         ghContentByModel: s.ghContentByModel || {
           "claude-sonnet-4-6": s.ghContent || "",
           "claude-opus-4-7": "",
@@ -377,7 +384,7 @@
         usageByModel: emptyByModel(() => ({ input: 0, output: 0 })),
         ghPathsByModel: emptyByModel(() => ""),
         ghAuto: false,
-        ghDir: "ログ",
+        ghDirByModel: emptyByModel(() => "ログ"),
         ghContentByModel: emptyByModel(() => ""),
         ghFilesByModel: emptyByModel(() => []),
         ghSavedPathByModel: emptyByModel(() => null),
@@ -398,17 +405,31 @@
     return state.usageByModel[state.model] || (state.usageByModel[state.model] = { input: 0, output: 0 });
   }
 
+  function currentDir() {
+    return (state.ghDirByModel[state.model] ?? "").replace(/^\/+|\/+$/g, "");
+  }
+
+  function renderSaveStatus() {
+    const saved = state.ghSavedPathByModel[state.model];
+    const dir = currentDir();
+    const repo = REPO_LABEL[state.model] || "";
+    $("ghsavestatus").textContent = saved
+      ? `この会話の保存先：${repo} / ${saved}（次に押すとここに上書き）`
+      : `次に保存すると：${repo} / ${dir ? dir + "/" : ""}（日時）_${modelLabel(state.model)}.md`;
+  }
+
   function syncModelFields() {
     $("system").value = state.systems[state.model] || "";
     $("ghpaths").value = state.ghPathsByModel[state.model] || "";
+    $("ghdir").value = state.ghDirByModel[state.model] ?? "";
     render();
     renderGhStatus();
+    renderSaveStatus();
   }
 
   $("model").value = state.model;
   $("password").value = state.password;
   $("ghauto").checked = state.ghAuto;
-  $("ghdir").value = state.ghDir;
   syncModelFields();
 
   $("model").addEventListener("change", (e) => {
@@ -438,8 +459,9 @@
   });
 
   $("ghdir").addEventListener("input", (e) => {
-    state.ghDir = e.target.value.trim();
+    state.ghDirByModel[state.model] = e.target.value.trim();
     persist();
+    renderSaveStatus();
   });
 
   // ---- GitHub ----
@@ -500,7 +522,7 @@
       const { files } = await ghCall({ action: "read", paths });
       state.ghFilesByModel[state.model] = files.map((f) => f.path);
       state.ghContentByModel[state.model] = files
-        .map((f) => `\n\n===== ${f.path} =====\n\n${f.text}`)
+        .map((f) => `\n\n===== ${f.path} =====\n\n${f.text ?? f.content ?? ""}`)
         .join("");
       persist();
       renderGhStatus();
@@ -703,6 +725,7 @@
 
     persist();
     render();
+    renderSaveStatus();
   });
 
   function buildMarkdown() {
@@ -745,9 +768,25 @@
     }
 
     const { md, filename } = buildMarkdown();
-    const dir = (state.ghDir || "").replace(/^\/+|\/+$/g, "");
-    const savedPath = state.ghSavedPathByModel[state.model];
-    const path = savedPath || (dir ? `${dir}/${filename}` : filename);
+    const dir = currentDir();
+    const freshPath = dir ? `${dir}/${filename}` : filename;
+    let savedPath = state.ghSavedPathByModel[state.model];
+
+    // 一度保存したあとにフォルダ欄を変えていたら、どちらに入れるか確認する
+    if (savedPath) {
+      const savedDir = savedPath.includes("/") ? savedPath.slice(0, savedPath.lastIndexOf("/")) : "";
+      if (savedDir !== dir) {
+        const moveIt = confirm(
+          `この会話は前に「${savedDir || "（ルート）"}」に保存してある。\n` +
+          `今の設定は「${dir || "（ルート）"}」。\n\n` +
+          `OK＝新しい場所に保存する（古い場所のファイルは残るので、あとで手で消す）\n` +
+          `キャンセル＝前と同じ場所に上書きする`
+        );
+        if (moveIt) savedPath = null;
+      }
+    }
+
+    const path = savedPath || freshPath;
     const btn = $("ghsave");
 
     btn.disabled = true;
@@ -763,8 +802,9 @@
 
       state.ghSavedPathByModel[state.model] = path;
       persist();
+      renderSaveStatus();
       btn.textContent = "保存した";
-      meta.textContent = `GitHub に保存：${path}`;
+      meta.textContent = `GitHub に保存：${REPO_LABEL[state.model] || ""} / ${path}`;
       if (url) console.log(url);
     } catch (e) {
       showError("GitHub に保存できなかった：" + e.message);
