@@ -4,24 +4,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>合奏室</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paper: #f2f3ee;
-    --ink: #22302a;
-    --ink-soft: #66736c;
-    --rule: #cfd5cc;
-    --user: #e2e7df;
-    --accent: #1f6d68;
-    --danger: #a3462f;
+    --room: #1c1714;        /* 部屋の奥、灯りの届かない壁 */
+    --wall: #2a231d;        /* 灯りの近くの壁 */
+    --wood: #3a2f27;        /* 家具・ひろみの吹き出し */
+    --lamp: #e3a85e;        /* 灯り */
+    --lamp-soft: rgba(227, 168, 94, 0.14);
+    --ink: #efe5d6;         /* 文字 */
+    --ink-soft: #a3968a;    /* 控えめな文字 */
+    --rule: rgba(239, 229, 214, 0.12);
+    --danger: #d98c72;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    background: var(--paper);
+    background: var(--room);
+    background-image:
+      radial-gradient(ellipse 60% 45% at 18% 0%, rgba(227, 168, 94, 0.22), transparent 70%),
+      radial-gradient(ellipse 90% 60% at 50% 110%, rgba(0, 0, 0, 0.35), transparent 70%);
+    background-attachment: fixed;
     color: var(--ink);
-    font-family: "Meiryo UI", "Meiryo", "Yu Gothic UI", "Hiragino Sans", sans-serif;
-    font-size: 16px;
-    line-height: 1.8;
+    font-family: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", "游明朝", serif;
+    font-size: 16.5px;
+    line-height: 2;
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -33,54 +42,60 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--rule);
+    padding: 14px 24px;
     flex-wrap: wrap;
   }
   header h1 {
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 500;
     margin: 0 auto 0 0;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.22em;
+    color: var(--lamp);
+    text-shadow: 0 0 18px rgba(227, 168, 94, 0.45);
   }
   select, .btn {
     background: transparent;
     border: 1px solid var(--rule);
-    border-radius: 4px;
-    padding: 6px 12px;
+    border-radius: 999px;
+    padding: 5px 14px;
     cursor: pointer;
+    color: var(--ink-soft);
+    font-size: 14px;
   }
-  .btn:hover, select:hover { border-color: var(--ink-soft); }
+  select { color: var(--ink); }
+  select option { background: var(--wall); color: var(--ink); }
+  .btn:hover, select:hover { border-color: var(--lamp); color: var(--ink); }
   .btn:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--lamp);
     outline-offset: 2px;
   }
-  .btn.quiet { border-color: transparent; color: var(--ink-soft); }
-  .btn.quiet:hover { color: var(--ink); }
+  .btn.quiet { border-color: transparent; }
+  .btn.quiet:hover { border-color: var(--rule); }
 
   details.settings {
+    padding: 0 24px;
     border-bottom: 1px solid var(--rule);
-    padding: 0 20px;
   }
   details.settings summary {
     cursor: pointer;
     color: var(--ink-soft);
-    padding: 8px 0;
+    padding: 6px 0 10px;
     list-style: none;
-    font-size: 14px;
+    font-size: 13.5px;
   }
   details.settings summary::-webkit-details-marker { display: none; }
   details.settings[open] summary { color: var(--ink); }
-  .settings-body { display: grid; gap: 10px; padding: 4px 0 16px; max-width: 760px; }
-  .settings-body label { font-size: 14px; color: var(--ink-soft); display: grid; gap: 4px; }
+  .settings-body { display: grid; gap: 12px; padding: 4px 0 18px; max-width: 760px; }
+  .settings-body label { font-size: 13.5px; color: var(--ink-soft); display: grid; gap: 4px; line-height: 1.7; }
   .settings-body input, .settings-body textarea {
     width: 100%;
-    background: #fbfbf9;
+    background: var(--wall);
     border: 1px solid var(--rule);
-    border-radius: 4px;
-    padding: 8px 10px;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--ink);
   }
-  .settings-body textarea { min-height: 140px; resize: vertical; font-size: 14px; }
+  .settings-body textarea { min-height: 140px; resize: vertical; font-size: 14px; line-height: 1.8; }
   .settings-body textarea.short { min-height: 64px; }
   .settings-body .row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .settings-body .inline { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -91,74 +106,114 @@
   main {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 20px 12px;
+    padding: 36px 24px 16px;
   }
-  .thread { max-width: 760px; margin: 0 auto; display: grid; gap: 22px; }
-  .msg { white-space: pre-wrap; word-break: break-word; }
+  .thread { max-width: 720px; margin: 0 auto; display: grid; gap: 30px; }
+  .msg { white-space: pre-wrap; word-break: break-word; position: relative; }
+
+  /* ひろみ：ソファ側。革張りみたいな暗い暖色の吹き出し */
   .msg.user {
-    background: var(--user);
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin-left: 48px;
+    background: var(--wood);
+    border-radius: 18px 18px 4px 18px;
+    padding: 14px 20px;
+    margin-left: 72px;
+    justify-self: end;
+    max-width: 100%;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   }
+  /* 相手：灯りの側。吹き出しにせず、部屋の光の中に置く */
   .msg.assistant {
-    border-left: 2px solid var(--accent);
-    padding: 2px 0 2px 16px;
-    margin-right: 24px;
+    padding: 4px 0 4px 26px;
+    margin-right: 40px;
+  }
+  .msg.assistant::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 15px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--lamp);
+    box-shadow: 0 0 12px 3px var(--lamp-soft), 0 0 0 1px rgba(227,168,94,0.35);
   }
   .msg .who {
     display: block;
-    font-size: 12px;
+    font-size: 12.5px;
     color: var(--ink-soft);
-    margin-bottom: 4px;
-    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+    letter-spacing: 0.12em;
+    line-height: 1.4;
   }
-  .empty { color: var(--ink-soft); text-align: center; padding: 60px 0; }
   .msg .cost {
     display: block;
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--ink-soft);
-    margin-top: 6px;
-    letter-spacing: 0.03em;
+    opacity: 0.75;
+    margin-top: 10px;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
   }
-  .thinking { color: var(--ink-soft); }
-  .error { color: var(--danger); font-size: 14px; }
+  .empty { color: var(--ink-soft); text-align: center; padding: 80px 0; }
+  .thinking::before { animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+  .error { color: var(--danger); font-size: 14px; padding-left: 26px; }
 
-  /* 入力 */
+  /* 入力：低いテーブル */
   footer {
-    border-top: 1px solid var(--rule);
-    padding: 12px 20px 16px;
+    padding: 14px 24px 20px;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.25));
   }
-  .compose { max-width: 760px; margin: 0 auto; display: grid; gap: 8px; }
+  .compose { max-width: 720px; margin: 0 auto; display: grid; gap: 10px; }
   .compose textarea {
     width: 100%;
-    min-height: 88px;
+    min-height: 92px;
     resize: vertical;
-    background: #fbfbf9;
+    background: var(--wall);
     border: 1px solid var(--rule);
-    border-radius: 6px;
-    padding: 10px 12px;
+    border-radius: 14px;
+    padding: 12px 16px;
+    color: var(--ink);
+    line-height: 1.9;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
   }
-  .compose-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .compose-row .meta { color: var(--ink-soft); font-size: 13px; margin-right: auto; }
+  .compose textarea:focus { border-color: rgba(227,168,94,0.5); }
+  .compose textarea::placeholder, .settings-body ::placeholder { color: rgba(163,150,138,0.55); }
+  .compose-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .compose-row .meta { color: var(--ink-soft); font-size: 12.5px; margin-right: auto; line-height: 1.6; }
   .send {
-    background: var(--accent);
-    color: #fff;
+    background: var(--lamp);
+    color: #2a1d0f;
     border: none;
-    border-radius: 4px;
-    padding: 8px 20px;
+    border-radius: 999px;
+    padding: 8px 24px;
     cursor: pointer;
+    font-weight: 500;
+    box-shadow: 0 0 22px rgba(227,168,94,0.28);
   }
-  .send:disabled { opacity: 0.5; cursor: default; }
+  .send:hover { background: #ecb56e; }
+  .send:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+
+  /* スクロールバーも部屋の色に */
+  main::-webkit-scrollbar { width: 10px; }
+  main::-webkit-scrollbar-thumb { background: var(--wood); border-radius: 999px; }
+  main::-webkit-scrollbar-track { background: transparent; }
 
   @media (max-width: 600px) {
-    .msg.user { margin-left: 16px; }
+    body { font-size: 16px; }
+    .msg.user { margin-left: 24px; }
     .msg.assistant { margin-right: 8px; }
-    header { gap: 8px; padding: 10px 14px; }
+    header { gap: 8px; padding: 12px 16px; }
+    details.settings { padding: 0 16px; }
+    main { padding: 24px 16px 12px; }
+    footer { padding: 12px 16px 16px; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .msg { animation: appear 160ms ease-out; }
+    .msg { animation: appear 220ms ease-out; }
     @keyframes appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .thinking::before { animation: none; }
   }
 </style>
 </head>
