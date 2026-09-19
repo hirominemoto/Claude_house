@@ -351,6 +351,44 @@
     const k = monthKey();
     return state.monthly[k] || (state.monthly[k] = { usd: 0, input: 0, output: 0 });
   }
+
+  // 現在ブラウザに残っている「今月開始の会話」の累計を復元する。
+  // 表示用に計算するだけなので、設定や保存データは書き換えない。
+  function reconstructedMonthlyFromOpenConversations() {
+    const k = monthKey();
+    const total = { usd: 0, input: 0, output: 0 };
+
+    for (const model of MODELS) {
+      const startedAt = state.startedAtByModel?.[model];
+      if (!startedAt || monthKey(new Date(startedAt)) !== k) continue;
+
+      const usage = state.usageByModel?.[model] || { input: 0, output: 0 };
+      const inputTokens = Number(usage.input) || 0;
+      const outputTokens = Number(usage.output) || 0;
+      total.input += inputTokens;
+      total.output += outputTokens;
+      total.usd += costUSD(model, inputTokens, outputTokens) || 0;
+    }
+
+    return total;
+  }
+
+  function effectiveMonthly() {
+    const saved = currentMonthly();
+    const reconstructed = reconstructedMonthlyFromOpenConversations();
+    return reconstructed.usd > saved.usd ? reconstructed : saved;
+  }
+
+  // 会話を消す直前だけ、その累計を月間記録へ確定する。
+  function preserveMonthlyBeforeReset() {
+    const k = monthKey();
+    const saved = currentMonthly();
+    const reconstructed = reconstructedMonthlyFromOpenConversations();
+    if (reconstructed.usd > saved.usd) {
+      state.monthly[k] = reconstructed;
+    }
+  }
+
   const emptyByModel = (factory) => Object.fromEntries(MODELS.map((id) => [id, factory()]));
 
   let state = load();
@@ -635,7 +673,7 @@
       thread.appendChild(div);
     }
 
-    const monthly = currentMonthly();
+    const monthly = effectiveMonthly();
     const convCost = fmtCost(costUSD(state.model, usage.input, usage.output));
     const parts = [];
     if (messages.length) {
@@ -767,6 +805,8 @@
         !confirm("この会話を消して新しく始める？（保存していないログは消える）")) {
       return;
     }
+
+    preserveMonthlyBeforeReset();
 
     state.messagesByModel[state.model] = [];
     state.startedAtByModel[state.model] = null;
