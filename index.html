@@ -114,6 +114,13 @@
     letter-spacing: 0.05em;
   }
   .empty { color: var(--ink-soft); text-align: center; padding: 60px 0; }
+  .msg .cost {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-top: 6px;
+    letter-spacing: 0.03em;
+  }
   .thinking { color: var(--ink-soft); }
   .error { color: var(--danger); font-size: 14px; }
 
@@ -221,6 +228,32 @@
 
   const KEY = "gassoushitsu";
   const MODELS = ["claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-4-8"];
+
+  // ---- 料金の目安 ----
+  // 単価は 100万トークンあたりの USD（2026年9月時点の公式価格）。変わったらここを直す。
+  const PRICES = {
+    "claude-sonnet-4-6": { input: 3,  output: 15 },
+    "claude-opus-4-7":   { input: 5,  output: 25 },
+    "claude-opus-4-8":   { input: 5,  output: 25 }
+  };
+  const JPY_RATE = 150; // 円換算の目安レート。ざっくりでいいので固定値
+  const monthKey = (d = new Date()) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+  function costUSD(model, input, output) {
+    const p = PRICES[model];
+    if (!p) return null;
+    return (input * p.input + output * p.output) / 1_000_000;
+  }
+  function fmtCost(usd) {
+    if (usd == null) return "";
+    const jpy = usd * JPY_RATE;
+    const yen = jpy < 1 ? jpy.toFixed(2) : Math.round(jpy).toLocaleString();
+    return `約 $${usd.toFixed(usd < 0.1 ? 4 : 3)}（約 ${yen} 円）`;
+  }
+  function currentMonthly() {
+    const k = monthKey();
+    return state.monthly[k] || (state.monthly[k] = { usd: 0, input: 0, output: 0 });
+  }
   const emptyByModel = (factory) => Object.fromEntries(MODELS.map((id) => [id, factory()]));
 
   let state = load();
@@ -276,7 +309,8 @@
           "claude-sonnet-4-6": s.ghSavedPath || null,
           "claude-opus-4-7": null,
           "claude-opus-4-8": null
-        }
+        },
+        monthly: s.monthly || {}
       };
     } catch {
       return {
@@ -291,7 +325,8 @@
         ghDir: "ログ",
         ghContentByModel: emptyByModel(() => ""),
         ghFilesByModel: emptyByModel(() => []),
-        ghSavedPathByModel: emptyByModel(() => null)
+        ghSavedPathByModel: emptyByModel(() => null),
+        monthly: {}
       };
     }
   }
@@ -461,12 +496,28 @@
 
       div.appendChild(who);
       div.appendChild(document.createTextNode(m.content));
+
+      if (m.role === "assistant" && m.usage) {
+        const c = document.createElement("span");
+        c.className = "cost";
+        const usd = costUSD(m.model || state.model, m.usage.input, m.usage.output);
+        c.textContent = `入力 ${m.usage.input.toLocaleString()} ／ 出力 ${m.usage.output.toLocaleString()} tok ${fmtCost(usd)}`;
+        div.appendChild(c);
+      }
+
       thread.appendChild(div);
     }
 
-    meta.textContent = messages.length
-      ? `${Math.ceil(messages.length / 2)} 往復 ／ 入力 ${usage.input.toLocaleString()} tok・出力 ${usage.output.toLocaleString()} tok`
-      : "";
+    const monthly = currentMonthly();
+    const convCost = fmtCost(costUSD(state.model, usage.input, usage.output));
+    const parts = [];
+    if (messages.length) {
+      parts.push(`この会話 ${Math.ceil(messages.length / 2)} 往復 ／ 入力 ${usage.input.toLocaleString()}・出力 ${usage.output.toLocaleString()} tok ${convCost}`);
+    }
+    if (monthly.usd > 0) {
+      parts.push(`今月の合計（合奏室経由・全員分） ${fmtCost(monthly.usd)}`);
+    }
+    meta.textContent = parts.join("　｜　");
 
     thread.parentElement.scrollTop = thread.parentElement.scrollHeight;
   }
@@ -535,14 +586,25 @@
           showError(data.error || `エラー ${r.status}`);
         }
       } else {
-        messages.push({ role: "assistant", content: data.text, model: modelAtSend });
+        const msg = { role: "assistant", content: data.text, model: modelAtSend };
 
         if (data.usage) {
+          const inTok = data.usage.input_tokens || 0;
+          const outTok = data.usage.output_tokens || 0;
+          msg.usage = { input: inTok, output: outTok };
+
           const usage = state.usageByModel[modelAtSend] ||
             (state.usageByModel[modelAtSend] = { input: 0, output: 0 });
-          usage.input += data.usage.input_tokens || 0;
-          usage.output += data.usage.output_tokens || 0;
+          usage.input += inTok;
+          usage.output += outTok;
+
+          const m = currentMonthly();
+          m.input += inTok;
+          m.output += outTok;
+          m.usd += costUSD(modelAtSend, inTok, outTok) || 0;
         }
+
+        messages.push(msg);
 
         persist();
 
