@@ -354,6 +354,35 @@
   const emptyByModel = (factory) => Object.fromEntries(MODELS.map((id) => [id, factory()]));
 
   let state = load();
+  reconcileMonthlyFromCurrentConversations();
+  persist();
+
+  // 料金表示を追加する前から続いている会話も、今月分として一度だけ復元する。
+  // 保存済みの月間合計より会話ログから復元した金額が大きい場合だけ置き換えるので、
+  // 以後の読み込みで二重加算されない。
+  function reconcileMonthlyFromCurrentConversations() {
+    const k = monthKey();
+    const reconstructed = { usd: 0, input: 0, output: 0 };
+
+    for (const model of MODELS) {
+      const startedAt = state.startedAtByModel?.[model];
+      if (!startedAt || monthKey(new Date(startedAt)) !== k) continue;
+
+      for (const message of state.messagesByModel?.[model] || []) {
+        if (message.role !== "assistant" || !message.usage) continue;
+        const inputTokens = Number(message.usage.input) || 0;
+        const outputTokens = Number(message.usage.output) || 0;
+        reconstructed.input += inputTokens;
+        reconstructed.output += outputTokens;
+        reconstructed.usd += costUSD(message.model || model, inputTokens, outputTokens) || 0;
+      }
+    }
+
+    const saved = state.monthly[k] || { usd: 0, input: 0, output: 0 };
+    if (reconstructed.usd > saved.usd + Number.EPSILON) {
+      state.monthly[k] = reconstructed;
+    }
+  }
 
   function load() {
     try {
