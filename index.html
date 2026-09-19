@@ -142,6 +142,11 @@
     letter-spacing: 0.12em;
     line-height: 1.4;
   }
+  /* ト書き：*〜* で囲まれた部分 */
+  .msg .stage {
+    font-style: italic;
+    color: var(--ink-soft);
+  }
   .msg .cost {
     display: block;
     font-size: 11.5px;
@@ -582,6 +587,21 @@
     return opt ? opt.textContent : id;
   }
 
+  // *〜* で囲まれた部分をト書き（薄い斜体）にして追加する。中身はそのまま、見え方だけ
+  function appendWithStage(parent, text) {
+    const re = /\*([^*\n]+?)\*/g;
+    let last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const em = document.createElement("em");
+      em.className = "stage";
+      em.textContent = m[1];
+      parent.appendChild(em);
+      last = re.lastIndex;
+    }
+    if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+  }
+
   function render() {
     const messages = currentMessages();
     const usage = currentUsage();
@@ -602,7 +622,7 @@
         : modelLabel(m.model || state.model);
 
       div.appendChild(who);
-      div.appendChild(document.createTextNode(m.content));
+      appendWithStage(div, m.content);
 
       if (m.role === "assistant" && m.usage) {
         const c = document.createElement("span");
