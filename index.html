@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>合奏室</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --room: #1c1714;        /* 部屋の奥、灯りの届かない壁 */
@@ -28,9 +25,9 @@
       radial-gradient(ellipse 90% 60% at 50% 110%, rgba(0, 0, 0, 0.35), transparent 70%);
     background-attachment: fixed;
     color: var(--ink);
-    font-family: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", "游明朝", serif;
-    font-size: 16.5px;
-    line-height: 2;
+    font-family: "Meiryo UI", "Meiryo", "Yu Gothic UI", "Hiragino Sans", sans-serif;
+    font-size: 16px;
+    line-height: 1.9;
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -49,7 +46,7 @@
     font-size: 18px;
     font-weight: 500;
     margin: 0 auto 0 0;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.18em;
     color: var(--lamp);
     text-shadow: 0 0 18px rgba(227, 168, 94, 0.45);
   }
@@ -194,6 +191,24 @@
   .send:hover { background: #ecb56e; }
   .send:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
 
+  /* ペンダントランプ：広い画面のとき、会話の左の余白に吊る */
+  .lamp {
+    position: fixed;
+    top: 0;
+    left: calc(50% - 360px - 150px);
+    width: 120px;
+    height: 300px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .lamp .cord { stroke: #6a5a4a; stroke-width: 1.5; }
+  .lamp .shade { fill: #4a3a2e; stroke: #6a5644; stroke-width: 1; }
+  .lamp .shade-inner { fill: #f0c27a; opacity: 0.9; }
+  .lamp .bulb { fill: #fff1d6; }
+  .lamp .glow { fill: url(#lampGlow); }
+  header, details.settings, main, footer { position: relative; z-index: 1; }
+  @media (max-width: 1080px) { .lamp { display: none; } }
+
   /* スクロールバーも部屋の色に */
   main::-webkit-scrollbar { width: 10px; }
   main::-webkit-scrollbar-thumb { background: var(--wood); border-radius: 999px; }
@@ -218,6 +233,21 @@
 </style>
 </head>
 <body>
+
+<svg class="lamp" viewBox="0 0 120 300" aria-hidden="true">
+  <defs>
+    <radialGradient id="lampGlow" cx="50%" cy="0%" r="70%">
+      <stop offset="0%" stop-color="#e3a85e" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#e3a85e" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#e3a85e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path class="glow" d="M 34 104 L 0 300 L 120 300 L 86 104 Z"/>
+  <line class="cord" x1="60" y1="0" x2="60" y2="70"/>
+  <path class="shade" d="M 60 70 L 30 104 L 90 104 Z"/>
+  <path class="shade-inner" d="M 36 103 L 84 103 L 78 96 L 42 96 Z"/>
+  <circle class="bulb" cx="60" cy="102" r="3.5"/>
+</svg>
 
 <header>
   <h1>合奏室</h1>
@@ -639,7 +669,7 @@
     messages.push({ role: "user", content: text });
     input.value = "";
     persist();
-    render();
+    render(); // 前回のエラー表示もここで消える
     showThinking(true);
     sendBtn.disabled = true;
 
